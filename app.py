@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import streamlit as st
+import plotly.express as px
 
 st.set_page_config(page_title="Churn Risk Dashboard", layout="wide")
 
@@ -9,7 +10,13 @@ st.markdown("""
 <style>
     body, .stApp { background: #fff; color: #222; font-family: sans-serif; }
     h1 { border-bottom: 2px solid #000; padding-bottom: 6px; }
-    .kpi-box { border: 1px solid #ccc; padding: 16px 20px; text-align: center; }
+   .kpi-box {
+    border-radius: 12px;
+    padding: 20px;
+    background: white;
+    box-shadow: 0 4px 10px rgba(0,0,0,.08);
+    text-align:center;
+}
     .kpi-num { font-size: 2rem; font-weight: bold; }
     .kpi-label { font-size: 0.85rem; color: #555; }
     .risk-high { color: #c00; font-weight: bold; }
@@ -106,6 +113,19 @@ st.title("✈ Customer Churn Risk Dashboard")
 st.caption("Loyalty programme")
 st.markdown("<hr>", unsafe_allow_html=True)
 
+st.info(
+    f"""
+📊 Dashboard Summary
+
+• {at_risk:,} customers are High Risk
+
+• ${clv_stake:,.0f} CLV currently at risk
+
+• Historical churn rate: {churn_rate:.1f}%
+"""
+)
+
+st.subheader("Filter Customers")
 try:
     model, scaler, encoder = load_artifacts()
     cdf = load_data()
@@ -135,17 +155,41 @@ try:
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    st.subheader("Filter Customers")
-    f1, f2, f3 = st.columns(3)
+    st.sidebar.header("Filters")
 
-    card_options = ["All"] + sorted(cdf["Loyalty_Card"].dropna().unique().tolist())
-    risk_options = ["All", "High", "Medium", "Low"]
+card_options = ["All"] + sorted(
+    cdf["Loyalty_Card"].dropna().unique().tolist()
+)
 
-    card_filter = f1.selectbox("Card Tier",  card_options)
-    risk_filter = f2.selectbox("Risk Level", risk_options)
-    min_clv     = f3.number_input("Minimum CLV ($)", min_value=0, value=0, step=500)
+risk_options = ["All", "High", "Medium", "Low"]
 
-    filtered = cdf.copy()
+card_filter = st.sidebar.selectbox(
+    "Card Tier",
+    card_options
+)
+
+risk_filter = st.sidebar.selectbox(
+    "Risk Level",
+    risk_options
+)
+
+min_clv = st.sidebar.number_input(
+    "Minimum CLV ($)",
+    min_value=0,
+    value=0,
+    step=500
+)
+
+search = st.sidebar.text_input(
+    "Search Loyalty Number"
+)
+
+   if search:
+    filtered = filtered[
+        filtered["Loyalty Number"]
+        .astype(str)
+        .str.contains(search)
+    ]
     if card_filter != "All":
         filtered = filtered[filtered["Loyalty_Card"] == card_filter]
     if risk_filter != "All":
@@ -153,8 +197,65 @@ try:
     filtered = filtered[filtered["CLV"] >= min_clv]
 
     st.markdown(f"**{len(filtered):,} customers match your filters**")
-    st.markdown("<hr>", unsafe_allow_html=True)
 
+risk_counts = (
+    filtered["Risk_Level"]
+    .value_counts()
+    .reset_index()
+)
+
+risk_counts.columns = [
+    "Risk Level",
+    "Customers"
+]
+
+fig = px.pie(
+    risk_counts,
+    names="Risk Level",
+    values="Customers",
+    title="Customer Risk Distribution"
+)
+
+st.plotly_chart(
+    fig,
+    use_container_width=True
+)
+
+st.markdown("<hr>", unsafe_allow_html=True)
+st.subheader("Customer Details")
+
+selected_customer = st.selectbox(
+    "Select Customer",
+    filtered["Loyalty Number"]
+)
+
+customer = filtered[
+    filtered["Loyalty Number"]
+    == selected_customer
+].iloc[0]
+
+d1, d2, d3 = st.columns(3)
+
+d1.metric(
+    "Churn Probability",
+    f"{customer['Churn_Probability']:.1%}"
+)
+
+d2.metric(
+    "Customer Lifetime Value",
+    f"${customer['CLV']:,.0f}"
+)
+
+d3.metric(
+    "Flights",
+    int(customer["Total_Flights"])
+)
+
+st.success(
+    f"Recommended Action: {customer['Recommended_Action']}"
+)
+
+st.markdown("<hr>", unsafe_allow_html=True)
     st.subheader("Customer List")
 
     display = filtered[[
